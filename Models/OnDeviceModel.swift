@@ -19,17 +19,17 @@ struct OnDeviceModel: Identifiable, Equatable {
 
     static let available: [OnDeviceModel] = [
         OnDeviceModel(
-            id: "gemma3-4b-q4km",
-            displayName: "Gemma 3 4B",
-            paramCount: "4.3B",
-            sizeGB: "2.5",
-            speedLabel: "Balanced · Best for medical",
-            icon: "sparkles",
-            accentColor: .blue,
+            id: "llama32-3b-q4km",
+            displayName: "Llama 3.2 3B",
+            paramCount: "3.2B",
+            sizeGB: "1.8",
+            speedLabel: "Fastest · Default",
+            icon: "hare.fill",
+            accentColor: .orange,
             isRecommended: true,
             isNew: false,
-            downloadURL: "https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
-            ggufFilename: "gemma-3-4b-it-Q4_K_M.gguf"
+            downloadURL: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+            ggufFilename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
         ),
         OnDeviceModel(
             id: "phi35-mini-q4km",
@@ -44,18 +44,20 @@ struct OnDeviceModel: Identifiable, Equatable {
             downloadURL: "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
             ggufFilename: "Phi-3.5-mini-instruct-Q4_K_M.gguf"
         ),
+        // NOTE: Gemma 3 requires llama.cpp ≥ b4977 (Mar 2025). Current bundled llama.cpp is Dec 2024.
+        // Kept in list for future upgrade; will fail to load with current binary.
         OnDeviceModel(
-            id: "llama32-3b-q4km",
-            displayName: "Llama 3.2 3B",
-            paramCount: "3.2B",
-            sizeGB: "1.8",
-            speedLabel: "Fastest",
-            icon: "hare.fill",
-            accentColor: .orange,
+            id: "gemma3-4b-q4km",
+            displayName: "Gemma 3 4B",
+            paramCount: "4.3B",
+            sizeGB: "2.5",
+            speedLabel: "Balanced · Requires update",
+            icon: "sparkles",
+            accentColor: .blue,
             isRecommended: false,
             isNew: false,
-            downloadURL: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-            ggufFilename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+            downloadURL: "https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
+            ggufFilename: "gemma-3-4b-it-Q4_K_M.gguf"
         ),
     ]
 

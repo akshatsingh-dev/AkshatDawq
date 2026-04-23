@@ -1,5 +1,8 @@
 import Foundation
 import llama
+import OSLog
+
+private let log = Logger(subsystem: "com.dawq.app", category: "CactusManager")
 
 // MARK: - Runtime
 // Inference: llama.cpp (Swift SPM package, GGUF models, Metal GPU on iOS)
@@ -67,12 +70,18 @@ final class CactusManager: ObservableObject {
 
     func download(_ model: OnDeviceModel) async {
         downloadStates[model.id] = .downloading(0.0)
+        log.info("download: model='\(model.displayName)' url=\(model.downloadURL)")
 
         let destURL = modelsDirectory.appendingPathComponent(model.ggufFilename)
+        log.info("download: dest=\(destURL.path)")
 
         // Skip download if valid GGUF already on disk
         if FileManager.default.fileExists(atPath: destURL.path) {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: destURL.path)
+            let sizeBytes = attrs?[.size] as? Int ?? 0
+            log.info("download: file already on disk, size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
             if isValidGGUF(at: destURL) {
+                log.info("download: existing file is valid GGUF — skipping download, loading…")
                 downloadStates[model.id] = .installing
                 try? await loadGGUF(at: destURL)
                 UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
@@ -81,9 +90,12 @@ final class CactusManager: ObservableObject {
                 return
             } else {
                 // Corrupted file (e.g. HTML error response saved to disk) — delete and re-download
+                log.warning("download: existing file failed GGUF magic check — deleting, will re-download")
                 try? FileManager.default.removeItem(at: destURL)
                 UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
             }
+        } else {
+            log.info("download: no file on disk — starting network download")
         }
 
         // Stream download from HuggingFace
@@ -94,20 +106,29 @@ final class CactusManager: ObservableObject {
 
         do {
             try await streamDownload(from: url, to: destURL, modelID: model.id)
+            let attrs = try? FileManager.default.attributesOfItem(atPath: destURL.path)
+            let sizeBytes = attrs?[.size] as? Int ?? 0
+            log.info("download: stream complete, file size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
 
             // Validate before loading — catches partial downloads or error-page responses
-            guard isValidGGUF(at: destURL) else {
+            let valid = isValidGGUF(at: destURL)
+            log.info("download: post-download GGUF magic valid=\(valid)")
+            guard valid else {
+                log.error("download: downloaded file is not valid GGUF — aborting")
                 try? FileManager.default.removeItem(at: destURL)
                 downloadStates[model.id] = .failed
                 return
             }
 
             downloadStates[model.id] = .installing
+            log.info("download: loading downloaded model…")
             try await loadGGUF(at: destURL)
             UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
             activeModel = model
             downloadStates.removeValue(forKey: model.id)
+            log.info("download: complete, isModelLoaded=\(self.isModelLoaded)")
         } catch {
+            log.error("download: failed with error \(error)")
             downloadStates[model.id] = .failed
         }
     }
@@ -141,48 +162,106 @@ final class CactusManager: ObservableObject {
         }
     }
 
-    func restoreActiveModel() {
+    func restoreActiveModel() async {
         guard let id = UserDefaults.standard.string(forKey: Self.activeModelKey),
-              let model = OnDeviceModel.available.first(where: { $0.id == id }) else { return }
+              let model = OnDeviceModel.available.first(where: { $0.id == id }) else {
+            log.info("restoreActiveModel: no saved model ID in UserDefaults")
+            return
+        }
         let ggufPath = modelsDirectory.appendingPathComponent(model.ggufFilename)
-        guard FileManager.default.fileExists(atPath: ggufPath.path),
-              isValidGGUF(at: ggufPath) else {
-            // Stale reference — clear it
+        log.info("restoreActiveModel: checking \(ggufPath.path)")
+
+        let exists = FileManager.default.fileExists(atPath: ggufPath.path)
+        log.info("restoreActiveModel: file exists=\(exists)")
+        guard exists else {
+            log.warning("restoreActiveModel: file missing — clearing stale key")
             UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
             return
         }
-        Task {
-            do {
-                try await loadGGUF(at: ggufPath)
-                if isModelLoaded {
-                    activeModel = model
-                } else {
-                    activeModel = nil
-                }
-            } catch {
+
+        let attrs = try? FileManager.default.attributesOfItem(atPath: ggufPath.path)
+        let sizeBytes = attrs?[.size] as? Int ?? 0
+        log.info("restoreActiveModel: file size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
+
+        let valid = isValidGGUF(at: ggufPath)
+        log.info("restoreActiveModel: GGUF magic valid=\(valid)")
+        guard valid else {
+            log.warning("restoreActiveModel: invalid GGUF — clearing stale key")
+            UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
+            return
+        }
+
+        do {
+            log.info("restoreActiveModel: loading model '\(model.displayName)'")
+            try await loadGGUF(at: ggufPath)
+            if isModelLoaded {
+                activeModel = model
+                log.info("restoreActiveModel: model loaded successfully ✓")
+            } else {
                 activeModel = nil
+                log.error("restoreActiveModel: loadGGUF succeeded but isModelLoaded=false")
             }
+        } catch {
+            activeModel = nil
+            log.error("restoreActiveModel: loadGGUF threw \(error)")
         }
     }
 
     /// No model picker UX: always use a single default on-device model.
     func ensureDefaultModelReady() async {
-        restoreActiveModel()
-        if isModelLoaded { return }
+        log.info("ensureDefaultModelReady: start, isModelLoaded=\(self.isModelLoaded)")
 
-        let model = OnDeviceModel.primary
+        // Await restore — fixes race condition (restoreActiveModel is now async)
+        await restoreActiveModel()
 
-        let ggufPath = modelsDirectory.appendingPathComponent(model.ggufFilename)
-        if FileManager.default.fileExists(atPath: ggufPath.path), isValidGGUF(at: ggufPath) {
-            try? await loadGGUF(at: ggufPath)
-            if isModelLoaded {
-                activeModel = model
-                UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
-            }
+        if isModelLoaded {
+            log.info("ensureDefaultModelReady: model already loaded after restore ✓")
             return
         }
 
+        let model = OnDeviceModel.primary
+        let ggufPath = modelsDirectory.appendingPathComponent(model.ggufFilename)
+        log.info("ensureDefaultModelReady: primary model='\(model.displayName)' path=\(ggufPath.path)")
+
+        let exists = FileManager.default.fileExists(atPath: ggufPath.path)
+        log.info("ensureDefaultModelReady: file exists=\(exists)")
+
+        if exists {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: ggufPath.path)
+            let sizeBytes = attrs?[.size] as? Int ?? 0
+            log.info("ensureDefaultModelReady: file size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
+
+            let valid = isValidGGUF(at: ggufPath)
+            log.info("ensureDefaultModelReady: GGUF magic valid=\(valid)")
+
+            if valid {
+                do {
+                    log.info("ensureDefaultModelReady: loading from disk…")
+                    try await loadGGUF(at: ggufPath)
+                    if isModelLoaded {
+                        activeModel = model
+                        UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
+                        log.info("ensureDefaultModelReady: loaded from disk ✓")
+                        return
+                    } else {
+                        log.error("ensureDefaultModelReady: loadGGUF completed but isModelLoaded=false")
+                    }
+                } catch {
+                    // File has valid GGUF magic but llama.cpp rejected it (unsupported architecture,
+                    // wrong quantization, or OOM). Delete it so we download something that works.
+                    log.error("ensureDefaultModelReady: loadGGUF failed '\(error)' — deleting incompatible file")
+                    try? FileManager.default.removeItem(at: ggufPath)
+                    UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
+                }
+            } else {
+                log.warning("ensureDefaultModelReady: file on disk is not valid GGUF — deleting, will re-download")
+                try? FileManager.default.removeItem(at: ggufPath)
+            }
+        }
+
+        log.info("ensureDefaultModelReady: starting download for '\(model.displayName)'")
         await download(model)
+        log.info("ensureDefaultModelReady: after download, isModelLoaded=\(self.isModelLoaded)")
     }
 
     // MARK: - Transcription (SFSpeechRecognizer, on-device)
@@ -271,28 +350,34 @@ final class CactusManager: ObservableObject {
     }
 
     private func loadGGUF(at url: URL) async throws {
+        log.info("loadGGUF: start path=\(url.path)")
         // Run on background thread — model loading is CPU/IO heavy
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self else { continuation.resume(); return }
 
+                log.info("loadGGUF: calling llama_load_model_from_file…")
                 var modelParams = llama_model_default_params()
                 modelParams.n_gpu_layers = 35   // offload to Metal GPU — tune per device
 
                 guard let model = llama_load_model_from_file(url.path, modelParams) else {
+                    log.error("loadGGUF: llama_load_model_from_file returned nil — bad GGUF or OOM")
                     continuation.resume(throwing: InferenceError.modelLoadFailed)
                     return
                 }
+                log.info("loadGGUF: model pointer OK, creating context…")
 
                 var ctxParams = llama_context_default_params()
                 ctxParams.n_ctx = 2048
                 ctxParams.n_batch = 512
 
                 guard let ctx = llama_new_context_with_model(model, ctxParams) else {
+                    log.error("loadGGUF: llama_new_context_with_model returned nil — OOM or bad params")
                     llama_free_model(model)
                     continuation.resume(throwing: InferenceError.modelLoadFailed)
                     return
                 }
+                log.info("loadGGUF: context OK — setting isModelLoaded=true")
 
                 Task { @MainActor in
                     self.llamaModel = model
