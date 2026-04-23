@@ -1,0 +1,23 @@
+{
+  "originHash" : "6d65b2098662216579e26842f7c76f24ba26e6147f6aa6cd0c6454a0e49bb35f",
+  "pins" : [
+    {
+      "identity" : "grdb.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/groue/GRDB.swift",
+      "state" : {
+        "revision" : "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
+        "version" : "6.29.3"
+      }
+    },
+    {
+      "identity" : "llama.cpp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ggml-org/llama.cpp",
+      "state" : {
+        "revision" : "ecc93d0558fc3ecb8a5af69d2ece02fae4710ade"
+      }
+    }
+  ],
+  "version" : 3
+}

@@ -1,0 +1,74 @@
+name: DAWQ
+options:
+  bundleIdPrefix: com.akshat
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "6.29.0"
+  # Pin: current llama.cpp `master` dropped root Package.swift (use XCFramework instead).
+  # The commit after this switched Package.swift to a pkg-config stub; this revision is
+  # the last embedded SwiftPM `llama` library (Metal + sources) that matches `import llama`.
+  llama:
+    url: https://github.com/ggml-org/llama.cpp
+    revision: ecc93d0558fc3ecb8a5af69d2ece02fae4710ade
+
+targets:
+  DAWQ:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App
+      - path: Background
+      - path: Database
+      - path: HealthKit
+      - path: Inference
+      - path: Models
+      - path: Views
+    dependencies:
+      - package: GRDB
+      - package: llama
+        product: llama
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.akshat.dawq
+        SWIFT_VERSION: "5.10"
+        INFOPLIST_FILE: App/Info.plist
+        DEVELOPMENT_TEAM: ""   # set your team ID here
+    entitlements:
+      path: App/DAWQ.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+    info:
+      path: App/Info.plist
+      properties:
+        NSHealthShareUsageDescription: "DAWQ reads your Apple Health data locally to build on-device health insights. Nothing leaves your device."
+        NSHealthUpdateUsageDescription: "DAWQ does not write to Apple Health."
+        NSMicrophoneUsageDescription: "DAWQ uses the microphone to transcribe voice notes on-device."
+        NSSpeechRecognitionUsageDescription: "DAWQ transcribes voice notes on-device. Audio never leaves your phone."
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.akshat.dawq.nightly
+    capabilities:
+      - type: healthKit
+      - type: backgroundProcessing
+
+  DAWQTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: DAWQ
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.akshat.dawqtests
+        SWIFT_VERSION: "5.10"
