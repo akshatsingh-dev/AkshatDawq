@@ -4,21 +4,211 @@ import OSLog
 
 private let log = Logger(subsystem: "com.dawq.app", category: "CactusManager")
 
-// MARK: - Runtime
-// Inference: llama.cpp (Swift SPM package, GGUF models, Metal GPU on iOS)
-// Model: Gemma 3 4B Q4_K_M — strong medical entity extraction, structured JSON output
-//        GGUF from: https://huggingface.co/bartowski/gemma-3-4b-it-GGUF
-//        File: gemma-3-4b-it-Q4_K_M.gguf (~2.5 GB)
-// Transcription: SFSpeechRecognizer (see SpeechTranscriber.swift)
-//
-// Swap model: change OnDeviceModel.mlxModelID + ggufFilename to any GGUF on HuggingFace.
-
-// MARK: - Inference mode
+// MARK: - InferenceMode
 
 enum InferenceMode {
     case onDevice
     case homeServer
     case hybridCloud
+}
+
+// MARK: - InferenceBackend protocol
+//
+// Abstraction over llama.cpp (current) and Cactus (future).
+// Swap backends by changing `CactusManager.backend`.
+// Cactus integration path: implement CactusBackend when cactus-compute/cactus
+// adds GGUF support + Swift Package Manager Package.swift.
+
+protocol InferenceBackend: AnyObject {
+    /// True once a model is loaded and ready to generate.
+    var isLoaded: Bool { get }
+    /// Load a GGUF model from disk into memory.
+    func load(at url: URL) async throws
+    /// Run next-token generation and return the full response string.
+    func generate(prompt: String, maxTokens: Int) async throws -> String
+    /// Release model from memory (idempotent).
+    func unload()
+}
+
+// MARK: - LlamaCppBackend
+//
+// llama.cpp inference via ggml-org/llama.cpp Swift SPM package.
+// Metal GPU offload enabled (n_gpu_layers = 35).
+// NOTE: Current pinned commit (ecc93d05, Dec 2024) does NOT support gemma3/gemma4
+// architecture. Upgrade the llama.cpp SPM dependency to a build ≥ b4977 for Gemma
+// 3/4 support — requires either a Package.swift-restored fork or switch to SwiftLlama.
+
+final class LlamaCppBackend: InferenceBackend {
+
+    private(set) var isLoaded = false
+    private var llamaContext: OpaquePointer?
+    private var llamaModel: OpaquePointer?
+
+    func load(at url: URL) async throws {
+        log.info("LlamaCppBackend.load: start path=\(url.path)")
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { continuation.resume(); return }
+
+                log.info("LlamaCppBackend.load: calling llama_load_model_from_file…")
+                var modelParams = llama_model_default_params()
+                modelParams.n_gpu_layers = 35 // Metal GPU offload
+
+                guard let model = llama_load_model_from_file(url.path, modelParams) else {
+                    log.error("LlamaCppBackend.load: llama_load_model_from_file returned nil — unsupported arch or OOM")
+                    continuation.resume(throwing: InferenceError.modelLoadFailed)
+                    return
+                }
+                log.info("LlamaCppBackend.load: model pointer OK, creating context…")
+
+                var ctxParams = llama_context_default_params()
+                ctxParams.n_ctx = 2048
+                ctxParams.n_batch = 512
+
+                guard let ctx = llama_new_context_with_model(model, ctxParams) else {
+                    log.error("LlamaCppBackend.load: llama_new_context_with_model returned nil — OOM or bad params")
+                    llama_free_model(model)
+                    continuation.resume(throwing: InferenceError.modelLoadFailed)
+                    return
+                }
+                log.info("LlamaCppBackend.load: context OK")
+
+                Task { @MainActor in
+                    self.llamaModel = model
+                    self.llamaContext = ctx
+                    self.isLoaded = true
+                    log.info("LlamaCppBackend.load: isLoaded=true ✓")
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    func generate(prompt: String, maxTokens: Int) async throws -> String {
+        guard let ctx = llamaContext, let model = llamaModel else {
+            throw InferenceError.modelNotLoaded
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let nPrompt = prompt.utf8.count + 32
+                var tokens = [llama_token](repeating: 0, count: nPrompt)
+                let promptCStr = prompt.cString(using: .utf8)!
+                let nTokenized = llama_tokenize(model, promptCStr, Int32(prompt.utf8.count), &tokens, Int32(nPrompt), true, true)
+
+                guard nTokenized > 0 else {
+                    continuation.resume(throwing: InferenceError.tokenizationFailed)
+                    return
+                }
+
+                tokens = Array(tokens.prefix(Int(nTokenized)))
+
+                var batch = llama_batch_init(Int32(tokens.count), 0, 1)
+                for (i, token) in tokens.enumerated() {
+                    batch.token[i] = token
+                    batch.pos[i] = Int32(i)
+                    batch.n_seq_id[i] = 1
+                    batch.seq_id[i]![0] = 0
+                    batch.logits[i] = i == tokens.count - 1 ? 1 : 0
+                }
+                batch.n_tokens = Int32(tokens.count)
+
+                guard llama_decode(ctx, batch) == 0 else {
+                    llama_batch_free(batch)
+                    continuation.resume(throwing: InferenceError.decodeFailed)
+                    return
+                }
+                llama_batch_free(batch)
+
+                var output = ""
+                let nVocab = llama_n_vocab(model)
+                var nPos = Int32(tokens.count)
+                let sampler = LlamaCppBackend.buildSampler()
+
+                for _ in 0..<maxTokens {
+                    let logits = llama_get_logits_ith(ctx, -1)!
+                    var candidates = (0..<nVocab).map { id in
+                        llama_token_data(id: id, logit: logits[Int(id)], p: 0)
+                    }
+                    var candidateArray = llama_token_data_array(
+                        data: &candidates,
+                        size: candidates.count,
+                        selected: -1,
+                        sorted: false
+                    )
+
+                    llama_sampler_apply(sampler, &candidateArray)
+                    let nextToken = candidateArray.data![Int(candidateArray.selected)].id
+
+                    if llama_token_is_eog(model, nextToken) { break }
+
+                    var buf = [CChar](repeating: 0, count: 256)
+                    let nChars = llama_token_to_piece(model, nextToken, &buf, 256, 0, true)
+                    if nChars > 0 {
+                        output += String(bytes: buf.prefix(Int(nChars)).map { UInt8(bitPattern: $0) }, encoding: .utf8) ?? ""
+                    }
+
+                    var nextBatch = llama_batch_init(1, 0, 1)
+                    nextBatch.token[0] = nextToken
+                    nextBatch.pos[0] = nPos
+                    nextBatch.n_seq_id[0] = 1
+                    nextBatch.seq_id[0]![0] = 0
+                    nextBatch.logits[0] = 1
+                    nextBatch.n_tokens = 1
+                    nPos += 1
+
+                    if llama_decode(ctx, nextBatch) != 0 {
+                        llama_batch_free(nextBatch)
+                        break
+                    }
+                    llama_batch_free(nextBatch)
+                }
+
+                llama_sampler_free(sampler)
+                llama_kv_cache_clear(ctx)
+                continuation.resume(returning: output.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+    }
+
+    func unload() {
+        if let ctx = llamaContext { llama_free(ctx) }
+        if let model = llamaModel { llama_free_model(model) }
+        llamaContext = nil
+        llamaModel = nil
+        isLoaded = false
+    }
+
+    private static func buildSampler() -> UnsafeMutablePointer<llama_sampler> {
+        let sparams = llama_sampler_chain_default_params()
+        let chain = llama_sampler_chain_init(sparams)!
+        llama_sampler_chain_add(chain, llama_sampler_init_temp(0.1))
+        llama_sampler_chain_add(chain, llama_sampler_init_greedy())
+        return chain
+    }
+
+    deinit { unload() }
+}
+
+// MARK: - CactusBackend (stub)
+//
+// TODO: Implement when cactus-compute/cactus ships:
+//   1. GGUF model loading (currently only .cact format)
+//   2. Swift Package Manager Package.swift
+// Swap CactusManager.backend = CactusBackend() to activate.
+
+final class CactusBackend: InferenceBackend {
+    var isLoaded: Bool { false }
+
+    func load(at url: URL) async throws {
+        throw InferenceError.backendUnavailable
+    }
+
+    func generate(prompt: String, maxTokens: Int) async throws -> String {
+        throw InferenceError.backendUnavailable
+    }
+
+    func unload() {}
 }
 
 // MARK: - Extracted entities
@@ -37,6 +227,10 @@ struct AbstractedMedicalBrief {
 }
 
 // MARK: - CactusManager
+//
+// Coordinates model lifecycle, download, and all inference calls.
+// Delegates raw llama.cpp/Cactus calls to `backend` (InferenceBackend).
+// To swap backends at runtime: manager.switchBackend(CactusBackend())
 
 @MainActor
 final class CactusManager: ObservableObject {
@@ -54,8 +248,10 @@ final class CactusManager: ObservableObject {
     @Published var downloadStates: [String: DownloadState] = [:]
     @Published var activeModel: OnDeviceModel?
 
-    private var llamaContext: OpaquePointer?
-    private var llamaModel: OpaquePointer?
+    // Active inference backend. Default: llama.cpp.
+    // Replace with CactusBackend() once Cactus supports GGUF + SPM.
+    private var backend: any InferenceBackend = LlamaCppBackend()
+
     private static let activeModelKey = "activeModelID"
 
     private let modelsDirectory: URL = {
@@ -66,6 +262,16 @@ final class CactusManager: ObservableObject {
         return dir
     }()
 
+    // MARK: - Backend swap
+
+    /// Hot-swap the inference backend. Unloads the current backend first.
+    func switchBackend(_ newBackend: any InferenceBackend) {
+        backend.unload()
+        backend = newBackend
+        isModelLoaded = false
+        log.info("CactusManager: backend switched to \(type(of: newBackend))")
+    }
+
     // MARK: - Model lifecycle
 
     func download(_ model: OnDeviceModel) async {
@@ -75,22 +281,30 @@ final class CactusManager: ObservableObject {
         let destURL = modelsDirectory.appendingPathComponent(model.ggufFilename)
         log.info("download: dest=\(destURL.path)")
 
-        // Skip download if valid GGUF already on disk
         if FileManager.default.fileExists(atPath: destURL.path) {
             let attrs = try? FileManager.default.attributesOfItem(atPath: destURL.path)
             let sizeBytes = attrs?[.size] as? Int ?? 0
-            log.info("download: file already on disk, size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
+            log.info("download: file on disk, size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
             if isValidGGUF(at: destURL) {
-                log.info("download: existing file is valid GGUF — skipping download, loading…")
+                log.info("download: existing file is valid GGUF — loading…")
                 downloadStates[model.id] = .installing
-                try? await loadGGUF(at: destURL)
-                UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
-                activeModel = model
+                do {
+                    try await backend.load(at: destURL)
+                    isModelLoaded = backend.isLoaded
+                    if isModelLoaded {
+                        UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
+                        activeModel = model
+                    }
+                } catch {
+                    log.error("download: load failed on existing file \(error) — deleting")
+                    try? FileManager.default.removeItem(at: destURL)
+                    downloadStates[model.id] = .failed
+                    return
+                }
                 downloadStates.removeValue(forKey: model.id)
                 return
             } else {
-                // Corrupted file (e.g. HTML error response saved to disk) — delete and re-download
-                log.warning("download: existing file failed GGUF magic check — deleting, will re-download")
+                log.warning("download: existing file failed GGUF magic check — deleting, re-download")
                 try? FileManager.default.removeItem(at: destURL)
                 UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
             }
@@ -98,7 +312,6 @@ final class CactusManager: ObservableObject {
             log.info("download: no file on disk — starting network download")
         }
 
-        // Stream download from HuggingFace
         guard let url = URL(string: model.downloadURL) else {
             downloadStates[model.id] = .failed
             return
@@ -108,9 +321,8 @@ final class CactusManager: ObservableObject {
             try await streamDownload(from: url, to: destURL, modelID: model.id)
             let attrs = try? FileManager.default.attributesOfItem(atPath: destURL.path)
             let sizeBytes = attrs?[.size] as? Int ?? 0
-            log.info("download: stream complete, file size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
+            log.info("download: stream complete, size=\(sizeBytes) bytes (\(sizeBytes / 1_048_576) MB)")
 
-            // Validate before loading — catches partial downloads or error-page responses
             let valid = isValidGGUF(at: destURL)
             log.info("download: post-download GGUF magic valid=\(valid)")
             guard valid else {
@@ -122,13 +334,16 @@ final class CactusManager: ObservableObject {
 
             downloadStates[model.id] = .installing
             log.info("download: loading downloaded model…")
-            try await loadGGUF(at: destURL)
-            UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
-            activeModel = model
+            try await backend.load(at: destURL)
+            isModelLoaded = backend.isLoaded
+            if isModelLoaded {
+                UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
+                activeModel = model
+                log.info("download: complete ✓ isModelLoaded=true")
+            }
             downloadStates.removeValue(forKey: model.id)
-            log.info("download: complete, isModelLoaded=\(self.isModelLoaded)")
         } catch {
-            log.error("download: failed with error \(error)")
+            log.error("download: failed \(error)")
             downloadStates[model.id] = .failed
         }
     }
@@ -141,23 +356,24 @@ final class CactusManager: ObservableObject {
         return magic == Data([0x47, 0x47, 0x55, 0x46])
     }
 
-    /// UI truth source: model is considered installed only when file exists and has GGUF magic bytes.
     func hasInstalledValidModel(_ model: OnDeviceModel) -> Bool {
         let ggufPath = modelsDirectory.appendingPathComponent(model.ggufFilename)
         return FileManager.default.fileExists(atPath: ggufPath.path) && isValidGGUF(at: ggufPath)
     }
 
-    /// Explicitly select an already-downloaded model and load it into runtime.
     func selectInstalledModel(_ model: OnDeviceModel) async {
         guard hasInstalledValidModel(model) else { return }
         let ggufPath = modelsDirectory.appendingPathComponent(model.ggufFilename)
         do {
-            try await loadGGUF(at: ggufPath)
+            try await backend.load(at: ggufPath)
+            isModelLoaded = backend.isLoaded
             if isModelLoaded {
                 activeModel = model
                 UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
             }
         } catch {
+            log.error("selectInstalledModel: load failed \(error)")
+            isModelLoaded = false
             activeModel = nil
         }
     }
@@ -192,26 +408,27 @@ final class CactusManager: ObservableObject {
         }
 
         do {
-            log.info("restoreActiveModel: loading model '\(model.displayName)'")
-            try await loadGGUF(at: ggufPath)
+            log.info("restoreActiveModel: loading '\(model.displayName)'")
+            try await backend.load(at: ggufPath)
+            isModelLoaded = backend.isLoaded
             if isModelLoaded {
                 activeModel = model
-                log.info("restoreActiveModel: model loaded successfully ✓")
+                log.info("restoreActiveModel: loaded ✓")
             } else {
                 activeModel = nil
-                log.error("restoreActiveModel: loadGGUF succeeded but isModelLoaded=false")
+                log.error("restoreActiveModel: load returned but isLoaded=false")
             }
         } catch {
             activeModel = nil
-            log.error("restoreActiveModel: loadGGUF threw \(error)")
+            isModelLoaded = false
+            log.error("restoreActiveModel: load threw \(error) — clearing stale key")
+            UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
         }
     }
 
-    /// No model picker UX: always use a single default on-device model.
     func ensureDefaultModelReady() async {
         log.info("ensureDefaultModelReady: start, isModelLoaded=\(self.isModelLoaded)")
 
-        // Await restore — fixes race condition (restoreActiveModel is now async)
         await restoreActiveModel()
 
         if isModelLoaded {
@@ -237,34 +454,35 @@ final class CactusManager: ObservableObject {
             if valid {
                 do {
                     log.info("ensureDefaultModelReady: loading from disk…")
-                    try await loadGGUF(at: ggufPath)
+                    try await backend.load(at: ggufPath)
+                    isModelLoaded = backend.isLoaded
                     if isModelLoaded {
                         activeModel = model
                         UserDefaults.standard.set(model.id, forKey: Self.activeModelKey)
                         log.info("ensureDefaultModelReady: loaded from disk ✓")
                         return
                     } else {
-                        log.error("ensureDefaultModelReady: loadGGUF completed but isModelLoaded=false")
+                        log.error("ensureDefaultModelReady: load completed but isLoaded=false")
                     }
                 } catch {
-                    // File has valid GGUF magic but llama.cpp rejected it (unsupported architecture,
-                    // wrong quantization, or OOM). Delete it so we download something that works.
-                    log.error("ensureDefaultModelReady: loadGGUF failed '\(error)' — deleting incompatible file")
+                    // File has valid GGUF magic but backend rejected it (unsupported arch,
+                    // wrong quant, OOM). Delete it so we download a compatible model.
+                    log.error("ensureDefaultModelReady: load failed '\(error)' — deleting incompatible file")
                     try? FileManager.default.removeItem(at: ggufPath)
                     UserDefaults.standard.removeObject(forKey: Self.activeModelKey)
                 }
             } else {
-                log.warning("ensureDefaultModelReady: file on disk is not valid GGUF — deleting, will re-download")
+                log.warning("ensureDefaultModelReady: invalid GGUF on disk — deleting")
                 try? FileManager.default.removeItem(at: ggufPath)
             }
         }
 
-        log.info("ensureDefaultModelReady: starting download for '\(model.displayName)'")
+        log.info("ensureDefaultModelReady: downloading '\(model.displayName)'")
         await download(model)
         log.info("ensureDefaultModelReady: after download, isModelLoaded=\(self.isModelLoaded)")
     }
 
-    // MARK: - Transcription (SFSpeechRecognizer, on-device)
+    // MARK: - Transcription
 
     func transcribe(audioFileURL: URL) async throws -> String {
         return try await SpeechTranscriber.shared.transcribe(audioFileURL: audioFileURL)
@@ -275,10 +493,9 @@ final class CactusManager: ObservableObject {
     func extractEntities(from text: String) async throws -> ExtractedEntities {
         if isModelLoaded {
             let prompt = buildExtractionPrompt(text: text)
-            let raw = try await runInference(prompt: prompt, maxTokens: 512)
+            let raw = try await backend.generate(prompt: prompt, maxTokens: 512)
             return parseExtractionResponse(raw, source: text)
         } else {
-            // Fallback: NaturalLanguage + medical keyword matching (no download needed)
             return MedicalNLPFallback.extractEntities(from: text)
         }
     }
@@ -292,7 +509,7 @@ final class CactusManager: ObservableObject {
 
             Data: \(correlation.narrative)
             """
-            let response = try await runInference(prompt: prompt, maxTokens: 128)
+            let response = try await backend.generate(prompt: prompt, maxTokens: 128)
             return (response, currentMode)
         } else {
             return (correlation.narrative, .onDevice)
@@ -314,7 +531,7 @@ final class CactusManager: ObservableObject {
         Output starts with "User pattern:".
         """
         let abstract = isModelLoaded
-            ? (try await runInference(prompt: prompt, maxTokens: 256))
+            ? (try await backend.generate(prompt: prompt, maxTokens: 256))
             : "User pattern: \(userQuestion.prefix(100))"
         return AbstractedMedicalBrief(question: abstract, contextSummary: summary)
     }
@@ -337,162 +554,60 @@ final class CactusManager: ObservableObject {
 
             \(lines)
             """
-            return try await runInference(prompt: prompt, maxTokens: 256)
+            return try await backend.generate(prompt: prompt, maxTokens: 256)
         } else {
             return "Health data logged: \(logs.count) entries."
         }
     }
 
-    // MARK: - llama.cpp inference
+    // MARK: - Health Q&A (RAG-grounded)
 
-    func loadModel(weightsPath: String) async throws {
-        try await loadGGUF(at: URL(fileURLWithPath: weightsPath))
-    }
+    func answerQuery(
+        question: String,
+        healthContext: String,
+        documentContext: String
+    ) async throws -> (answer: String, mode: InferenceMode) {
+        let contextBlocks = [
+            healthContext.isEmpty ? nil : "Health data:\n\(healthContext)",
+            documentContext.isEmpty ? nil : "Uploaded documents:\n\(documentContext)"
+        ].compactMap { $0 }.joined(separator: "\n\n")
 
-    private func loadGGUF(at url: URL) async throws {
-        log.info("loadGGUF: start path=\(url.path)")
-        // Run on background thread — model loading is CPU/IO heavy
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else { continuation.resume(); return }
+        let prompt: String
+        if contextBlocks.isEmpty {
+            prompt = """
+            You are DAWQ, a private personal health assistant.
+            The user has not connected data yet. Still answer as a normal helpful health companion:
+            - Give practical wellness guidance in plain language
+            - Ask 1-2 brief follow-up questions to personalize next
+            - Never claim access to personal records you do not have
+            - No diagnosis, no prescriptions, no emergency guarantees
 
-                log.info("loadGGUF: calling llama_load_model_from_file…")
-                var modelParams = llama_model_default_params()
-                modelParams.n_gpu_layers = 35   // offload to Metal GPU — tune per device
+            User question: \(question)
+            Answer:
+            """
+        } else {
+            prompt = """
+            You are DAWQ, a private personal health assistant.
+            Use verified context first, then explain clearly and briefly.
+            If context is insufficient, say what is missing and suggest what to log/import next.
+            No diagnosis or prescriptions.
 
-                guard let model = llama_load_model_from_file(url.path, modelParams) else {
-                    log.error("loadGGUF: llama_load_model_from_file returned nil — bad GGUF or OOM")
-                    continuation.resume(throwing: InferenceError.modelLoadFailed)
-                    return
-                }
-                log.info("loadGGUF: model pointer OK, creating context…")
+            \(contextBlocks)
 
-                var ctxParams = llama_context_default_params()
-                ctxParams.n_ctx = 2048
-                ctxParams.n_batch = 512
-
-                guard let ctx = llama_new_context_with_model(model, ctxParams) else {
-                    log.error("loadGGUF: llama_new_context_with_model returned nil — OOM or bad params")
-                    llama_free_model(model)
-                    continuation.resume(throwing: InferenceError.modelLoadFailed)
-                    return
-                }
-                log.info("loadGGUF: context OK — setting isModelLoaded=true")
-
-                Task { @MainActor in
-                    self.llamaModel = model
-                    self.llamaContext = ctx
-                    self.isModelLoaded = true
-                }
-                continuation.resume()
-            }
-        }
-    }
-
-    private
-    
-     func runInference(prompt: String, maxTokens: Int) async throws -> String {
-        guard let ctx = llamaContext, let model = llamaModel else {
-            throw InferenceError.modelNotLoaded
+            User question: \(question)
+            Answer:
+            """
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                // Tokenize
-                let nPrompt = prompt.utf8.count + 32
-                var tokens = [llama_token](repeating: 0, count: nPrompt)
-                let promptCStr = prompt.cString(using: .utf8)!
-                let nTokenized = llama_tokenize(model, promptCStr, Int32(prompt.utf8.count), &tokens, Int32(nPrompt), true, true)
-
-                guard nTokenized > 0 else {
-                    continuation.resume(throwing: InferenceError.tokenizationFailed)
-                    return
-                }
-
-                tokens = Array(tokens.prefix(Int(nTokenized)))
-
-                // Build batch
-                var batch = llama_batch_init(Int32(tokens.count), 0, 1)
-                for (i, token) in tokens.enumerated() {
-                    batch.token[i] = token
-                    batch.pos[i] = Int32(i)
-                    batch.n_seq_id[i] = 1
-                    batch.seq_id[i]![0] = 0
-                    batch.logits[i] = i == tokens.count - 1 ? 1 : 0
-                }
-                batch.n_tokens = Int32(tokens.count)
-
-                guard llama_decode(ctx, batch) == 0 else {
-                    llama_batch_free(batch)
-                    continuation.resume(throwing: InferenceError.decodeFailed)
-                    return
-                }
-                llama_batch_free(batch)
-
-                // Sample tokens
-                var output = ""
-                
-                let nVocab = llama_n_vocab(model)
-                var nPos = Int32(tokens.count)
-                let sampler = CactusManager.buildSampler()
-
-                for _ in 0..<maxTokens {
-                    let logits = llama_get_logits_ith(ctx, -1)!
-                    var candidates = (0..<nVocab).map { id in
-                        llama_token_data(id: id, logit: logits[Int(id)], p: 0)
-                    }
-
-                    var candidateArray = llama_token_data_array(
-                        data: &candidates,
-                        size: candidates.count,
-                        selected: -1,
-                        sorted: false
-                    )
-
-                    // Temperature 0.1 — deterministic, factual
-                    llama_sampler_apply(sampler, &candidateArray)
-                    let nextToken = candidateArray.data![Int(candidateArray.selected)].id
-
-                    if llama_token_is_eog(model, nextToken) { break }
-
-                    // Decode token to text
-                    var buf = [CChar](repeating: 0, count: 256)
-                    let nChars = llama_token_to_piece(model, nextToken, &buf, 256, 0, true)
-                    if nChars > 0 {
-                        output += String(bytes: buf.prefix(Int(nChars)).map { UInt8(bitPattern: $0) }, encoding: .utf8) ?? ""
-                    }
-
-                    // Decode next token
-                    var nextBatch = llama_batch_init(1, 0, 1)
-                    nextBatch.token[0] = nextToken
-                    nextBatch.pos[0] = nPos
-                    nextBatch.n_seq_id[0] = 1
-                    nextBatch.seq_id[0]![0] = 0
-                    nextBatch.logits[0] = 1
-                    nextBatch.n_tokens = 1
-                    nPos += 1
-
-                    if llama_decode(ctx, nextBatch) != 0 {
-                        llama_batch_free(nextBatch)
-                        break
-                    }
-                    llama_batch_free(nextBatch)
-                }
-
-                llama_sampler_free(sampler)
-                llama_kv_cache_clear(ctx)
-                continuation.resume(returning: output.trimmingCharacters(in: .whitespacesAndNewlines))
-            }
+        if isModelLoaded {
+            let answer = try await backend.generate(prompt: prompt, maxTokens: 512)
+            return (answer, currentMode)
+        } else {
+            let fallback = contextBlocks.isEmpty
+                ? "I can help with general wellness questions, but your on-device model is still preparing. Tap the model button to download it."
+                : "I found some context, but your on-device model is still preparing. Tap the model button to finish setup."
+            return (fallback, .onDevice)
         }
-    }
-
-    private static func buildSampler() -> UnsafeMutablePointer<llama_sampler> {
-        let sparams = llama_sampler_chain_default_params()
-        let chain = llama_sampler_chain_init(sparams)!
-        // Temperature 0.1 — near-deterministic for medical facts
-        llama_sampler_chain_add(chain, llama_sampler_init_temp(0.1))
-        llama_sampler_chain_add(chain, llama_sampler_init_greedy())
-        return chain
     }
 
     // MARK: - Streaming download
@@ -507,9 +622,9 @@ final class CactusManager: ObservableObject {
                 if let http = response as? HTTPURLResponse,
                    !(200...299).contains(http.statusCode) {
                     if let message = http.value(forHTTPHeaderField: "x-error-message") {
-                        print("Model download failed (\(http.statusCode)): \(message)")
+                        log.error("download HTTP \(http.statusCode): \(message)")
                     } else {
-                        print("Model download failed with HTTP \(http.statusCode)")
+                        log.error("download HTTP \(http.statusCode)")
                     }
                     continuation.resume(throwing: InferenceError.downloadFailed)
                     return
@@ -529,7 +644,6 @@ final class CactusManager: ObservableObject {
                 }
             }
 
-            // Progress observation
             let observation = task.progress.observe(\.fractionCompleted) { progress, _ in
                 Task { @MainActor [weak self] in
                     self?.downloadStates[modelID] = .downloading(progress.fractionCompleted)
@@ -537,8 +651,6 @@ final class CactusManager: ObservableObject {
             }
 
             task.resume()
-
-            // Keep observation alive during download
             let _ = observation
         }
     }
@@ -587,64 +699,6 @@ final class CactusManager: ObservableObject {
 
         return ExtractedEntities(entities: entities, relationships: relationships, rawSource: source)
     }
-
-    // MARK: - Health Q&A (RAG-grounded)
-
-    /// Answer a natural-language health question.
-    /// Context: SQL-derived health summary + relevant document chunks.
-    /// Model narrates verified data — never generates medical facts from weights alone.
-    func answerQuery(
-        question: String,
-        healthContext: String,
-        documentContext: String
-    ) async throws -> (answer: String, mode: InferenceMode) {
-        let contextBlocks = [
-            healthContext.isEmpty ? nil : "Health data:\n\(healthContext)",
-            documentContext.isEmpty ? nil : "Uploaded documents:\n\(documentContext)"
-        ].compactMap { $0 }.joined(separator: "\n\n")
-
-        let prompt: String
-        if contextBlocks.isEmpty {
-            prompt = """
-            You are DAWQ, a private personal health assistant.
-            The user has not connected data yet. Still answer as a normal helpful health companion:
-            - Give practical wellness guidance in plain language
-            - Ask 1-2 brief follow-up questions to personalize next
-            - Never claim access to personal records you do not have
-            - No diagnosis, no prescriptions, no emergency guarantees
-
-            User question: \(question)
-            Answer:
-            """
-        } else {
-            prompt = """
-            You are DAWQ, a private personal health assistant.
-            Use verified context first, then explain clearly and briefly.
-            If context is insufficient, say what is missing and suggest what to log/import next.
-            No diagnosis or prescriptions.
-
-            \(contextBlocks)
-
-            User question: \(question)
-            Answer:
-            """
-        }
-
-        if isModelLoaded {
-            let answer = try await runInference(prompt: prompt, maxTokens: 512)
-            return (answer, currentMode)
-        } else {
-            let fallback = contextBlocks.isEmpty
-                ? "I can help with general wellness questions, but your on-device model is still preparing. Tap \"No model\" to download it, then I can answer in full personal-doc mode."
-                : "I found some context, but your on-device model is still preparing. Tap \"No model\" to finish setup and I will give a full personalized answer."
-            return (fallback, .onDevice)
-        }
-    }
-
-    deinit {
-        if let ctx = llamaContext { llama_free(ctx) }
-        if let model = llamaModel { llama_free_model(model) }
-    }
 }
 
 // MARK: - Errors
@@ -656,4 +710,5 @@ enum InferenceError: Error {
     case decodeFailed
     case downloadFailed
     case cloudRouteBlocked
+    case backendUnavailable
 }

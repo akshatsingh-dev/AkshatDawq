@@ -18,12 +18,28 @@ struct OnDeviceModel: Identifiable, Equatable {
     let ggufFilename: String
 
     static let available: [OnDeviceModel] = [
+        // NOTE: Gemma 3/4 require llama.cpp ≥ b4977 (Mar 2025). Current SPM pin is Dec 2024.
+        // To enable: update XCRemoteSwiftPackageReference "llama.cpp" to a newer commit
+        // that still ships Package.swift, or switch to github.com/ShenghaiWang/SwiftLlama.
+        OnDeviceModel(
+            id: "gemma4-e2b-q4km",
+            displayName: "Gemma 4 2B",
+            paramCount: "2B",
+            sizeGB: "4.6",
+            speedLabel: "Balanced · Needs llama.cpp update",
+            icon: "sparkles",
+            accentColor: .green,
+            isRecommended: false,
+            isNew: true,
+            downloadURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+            ggufFilename: "gemma-4-E2B-it-Q4_K_M.gguf"
+        ),
         OnDeviceModel(
             id: "llama32-3b-q4km",
             displayName: "Llama 3.2 3B",
             paramCount: "3.2B",
             sizeGB: "1.8",
-            speedLabel: "Fastest · Default",
+            speedLabel: "Fastest · Works now",
             icon: "hare.fill",
             accentColor: .orange,
             isRecommended: true,
