@@ -72,3 +72,4 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.akshat.dawqtests
         SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: YES

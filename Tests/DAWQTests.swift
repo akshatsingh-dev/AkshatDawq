@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import DAWQ
 
@@ -6,8 +7,14 @@ import Testing
     #expect(recommended.count == 1)
 }
 
-@Test func modelCatalogAllHaveSlugs() {
+@Test func modelCatalogEntriesAreWellFormed() {
     for model in OnDeviceModel.available {
-        #expect(!model.modelSlug.isEmpty)
+        #expect(!model.ggufFilename.isEmpty)
+        #expect(URL(string: model.downloadURL)?.scheme == "https")
     }
+}
+
+@Test func modelCatalogIDsAreUnique() {
+    let ids = OnDeviceModel.available.map(\.id)
+    #expect(Set(ids).count == ids.count)
 }

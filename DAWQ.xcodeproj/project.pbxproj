@@ -7,10 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01EA2B2ABD041CE692E591D2 /* InferenceRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3B3D349960BAB4BE8293C7 /* InferenceRouter.swift */; };
 		16F3BE2F093719DC8B1EAFFC /* ModelManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73264DF44F59D260B33DC6D0 /* ModelManagerView.swift */; };
-		1A7A3D4B5C6D7E8F90112233 /* InferenceRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A7A3D4B5C6D7E8F90112234 /* InferenceRouter.swift */; };
 		31E42F482400324732AC98AF /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115F6CE620CB636F62A3B170 /* HomeView.swift */; };
-		3B8E1D2C4F6A7B8C9D0E1122 /* DataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B8E1D2C4F6A7B8C9D0E1123 /* DataView.swift */; };
 		417EA304B17F8A695C50CA8D /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BEC1093A902D063FB4F89F /* DatabaseManager.swift */; };
 		4262E8DA5A12E0E5023F1784 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F51F40197060FADCFF01B6B7 /* GRDB */; };
 		4382061E59B11EF74408D6EC /* DAWQApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCEE9D0CEF83537151761D64 /* DAWQApp.swift */; };
@@ -21,17 +20,18 @@
 		687D79D060B697B436610FCF /* NightlyBatchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F626F3378DBE044BE79113D /* NightlyBatchProcessor.swift */; };
 		7D7E700268A518E6D7CB6DFB /* DAWQTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778D0892EBF81A32C3AEEBE0 /* DAWQTests.swift */; };
 		83F40BB4BBA582B9E2C6EB77 /* VoiceLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C2BEA725679A48616C9ACD /* VoiceLogView.swift */; };
-		84C7D6E5F4A3928170615043 /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84C7D6E5F4A3928170615044 /* AskView.swift */; };
 		8744D23C98D7FBF1AF907D41 /* HealthLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7918C18CAE57D5A7536215BB /* HealthLog.swift */; };
+		9DCA7C45A56C26391B93BE12 /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8DD3FDE767428BC3882929 /* AskView.swift */; };
 		9E56F1A139199F688E51B73B /* SpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F76E21979FC603B2D58BFF6 /* SpeechTranscriber.swift */; };
 		ADD9225C5924A795E665AFFA /* llama in Frameworks */ = {isa = PBXBuildFile; productRef = E381837F2A908F894BFD62C5 /* llama */; };
 		BDB4C7750B9AFF48C6901FF7 /* CactusManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E5B68312DD3A1BE5BC9439 /* CactusManager.swift */; };
-		CF8A9B0C1D2E3F4051627384 /* MedicalDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8A9B0C1D2E3F4051627385 /* MedicalDocument.swift */; };
 		C0002772C372D25569980438 /* OnDeviceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ADDBFA6A21F026A60BE063 /* OnDeviceModel.swift */; };
+		C3C5E875AEF445A57C9749D5 /* MedicalDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F182647B3240FE2BD27D9183 /* MedicalDocument.swift */; };
 		C47A91EA9554D7AD23060A46 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47609374D484874788BF5725 /* OnboardingView.swift */; };
 		CCEE59B9C5CC13210EC38094 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C168461A0AEF2C5F5715B0AA /* ContentView.swift */; };
 		D609D08E52576966D1C9D88B /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D953BFB65E34D1021B4CDB1 /* ProfileView.swift */; };
-		D1E2F3A4B5C6D7E8F9011223 /* DocumentRAG.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9011224 /* DocumentRAG.swift */; };
+		DA1F6462461EA7ACCF6C8AD4 /* DocumentRAG.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D55F4476CF47EE10C8FFF2 /* DocumentRAG.swift */; };
+		DB370A424CB72AEEFDDB595D /* DataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E06819A6D423B608D58A975 /* DataView.swift */; };
 		DE8FCE78F130E3809F3B8DB3 /* MedicalNLPFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DED760159EF6D3D04B5AB40 /* MedicalNLPFallback.swift */; };
 		EEBE9DF64B8BE0BE52B8CC7B /* UserHealthProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01767EDE6F2A2929DAD64CE7 /* UserHealthProfile.swift */; };
 /* End PBXBuildFile section */
@@ -50,9 +50,7 @@
 		01767EDE6F2A2929DAD64CE7 /* UserHealthProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserHealthProfile.swift; sourceTree = "<group>"; };
 		115F6CE620CB636F62A3B170 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		13BEC1093A902D063FB4F89F /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
-		1A7A3D4B5C6D7E8F90112234 /* InferenceRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceRouter.swift; sourceTree = "<group>"; };
 		1F626F3378DBE044BE79113D /* NightlyBatchProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightlyBatchProcessor.swift; sourceTree = "<group>"; };
-		3B8E1D2C4F6A7B8C9D0E1123 /* DataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataView.swift; sourceTree = "<group>"; };
 		3DED760159EF6D3D04B5AB40 /* MedicalNLPFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalNLPFallback.swift; sourceTree = "<group>"; };
 		47609374D484874788BF5725 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		4FDE14B71EBF8F20E81661EB /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
@@ -63,19 +61,21 @@
 		778D0892EBF81A32C3AEEBE0 /* DAWQTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DAWQTests.swift; sourceTree = "<group>"; };
 		7918C18CAE57D5A7536215BB /* HealthLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthLog.swift; sourceTree = "<group>"; };
 		7D953BFB65E34D1021B4CDB1 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		7E8DD3FDE767428BC3882929 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
 		82C2BEA725679A48616C9ACD /* VoiceLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLogView.swift; sourceTree = "<group>"; };
-		84C7D6E5F4A3928170615044 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
 		8DC427122FD9031D7FA65E17 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		8E06819A6D423B608D58A975 /* DataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataView.swift; sourceTree = "<group>"; };
+		91D55F4476CF47EE10C8FFF2 /* DocumentRAG.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentRAG.swift; sourceTree = "<group>"; };
 		A3E5B68312DD3A1BE5BC9439 /* CactusManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CactusManager.swift; sourceTree = "<group>"; };
 		A96F6A30296E24F85DE258F3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C168461A0AEF2C5F5715B0AA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		CF8A9B0C1D2E3F4051627385 /* MedicalDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalDocument.swift; sourceTree = "<group>"; };
-		D1E2F3A4B5C6D7E8F9011224 /* DocumentRAG.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentRAG.swift; sourceTree = "<group>"; };
 		E6ADDBFA6A21F026A60BE063 /* OnDeviceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceModel.swift; sourceTree = "<group>"; };
 		ED456C2937D374931D2DCA96 /* DAWQ.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DAWQ.entitlements; sourceTree = "<group>"; };
+		F182647B3240FE2BD27D9183 /* MedicalDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalDocument.swift; sourceTree = "<group>"; };
 		F74D07E178F57A0BB1268751 /* Migrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Migrations.swift; sourceTree = "<group>"; };
 		FCEE9D0CEF83537151761D64 /* DAWQApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DAWQApp.swift; sourceTree = "<group>"; };
 		FDF7F9DCCADC2A4EC9A9C993 /* DAWQTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DAWQTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF3B3D349960BAB4BE8293C7 /* InferenceRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceRouter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -147,7 +147,7 @@
 			children = (
 				657457A68958EB9053F96B52 /* HealthEntity.swift */,
 				7918C18CAE57D5A7536215BB /* HealthLog.swift */,
-				CF8A9B0C1D2E3F4051627385 /* MedicalDocument.swift */,
+				F182647B3240FE2BD27D9183 /* MedicalDocument.swift */,
 				E6ADDBFA6A21F026A60BE063 /* OnDeviceModel.swift */,
 				01767EDE6F2A2929DAD64CE7 /* UserHealthProfile.swift */,
 			);
@@ -158,8 +158,8 @@
 			isa = PBXGroup;
 			children = (
 				A3E5B68312DD3A1BE5BC9439 /* CactusManager.swift */,
-				D1E2F3A4B5C6D7E8F9011224 /* DocumentRAG.swift */,
-				1A7A3D4B5C6D7E8F90112234 /* InferenceRouter.swift */,
+				91D55F4476CF47EE10C8FFF2 /* DocumentRAG.swift */,
+				FF3B3D349960BAB4BE8293C7 /* InferenceRouter.swift */,
 				3DED760159EF6D3D04B5AB40 /* MedicalNLPFallback.swift */,
 				6F76E21979FC603B2D58BFF6 /* SpeechTranscriber.swift */,
 			);
@@ -169,8 +169,8 @@
 		8C4E5483DDB6095DA8AA4F0C /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				84C7D6E5F4A3928170615044 /* AskView.swift */,
-				3B8E1D2C4F6A7B8C9D0E1123 /* DataView.swift */,
+				7E8DD3FDE767428BC3882929 /* AskView.swift */,
+				8E06819A6D423B608D58A975 /* DataView.swift */,
 				115F6CE620CB636F62A3B170 /* HomeView.swift */,
 				4FDE14B71EBF8F20E81661EB /* InsightsView.swift */,
 				73264DF44F59D260B33DC6D0 /* ModelManagerView.swift */,
@@ -282,20 +282,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				84C7D6E5F4A3928170615043 /* AskView.swift in Sources */,
+				9DCA7C45A56C26391B93BE12 /* AskView.swift in Sources */,
 				BDB4C7750B9AFF48C6901FF7 /* CactusManager.swift in Sources */,
 				CCEE59B9C5CC13210EC38094 /* ContentView.swift in Sources */,
-				3B8E1D2C4F6A7B8C9D0E1122 /* DataView.swift in Sources */,
 				4382061E59B11EF74408D6EC /* DAWQApp.swift in Sources */,
+				DB370A424CB72AEEFDDB595D /* DataView.swift in Sources */,
 				417EA304B17F8A695C50CA8D /* DatabaseManager.swift in Sources */,
-				D1E2F3A4B5C6D7E8F9011223 /* DocumentRAG.swift in Sources */,
+				DA1F6462461EA7ACCF6C8AD4 /* DocumentRAG.swift in Sources */,
 				44A3F028952CAFCFB906F1FE /* HealthEntity.swift in Sources */,
 				621C5FED23C8EBF703EF9278 /* HealthKitManager.swift in Sources */,
 				8744D23C98D7FBF1AF907D41 /* HealthLog.swift in Sources */,
 				31E42F482400324732AC98AF /* HomeView.swift in Sources */,
-				1A7A3D4B5C6D7E8F90112233 /* InferenceRouter.swift in Sources */,
+				01EA2B2ABD041CE692E591D2 /* InferenceRouter.swift in Sources */,
 				6696B7F6E199FBC800B6CA4A /* InsightsView.swift in Sources */,
-				CF8A9B0C1D2E3F4051627384 /* MedicalDocument.swift in Sources */,
+				C3C5E875AEF445A57C9749D5 /* MedicalDocument.swift in Sources */,
 				DE8FCE78F130E3809F3B8DB3 /* MedicalNLPFallback.swift in Sources */,
 				6377C2A5E805BA07B2B78B7C /* Migrations.swift in Sources */,
 				16F3BE2F093719DC8B1EAFFC /* ModelManagerView.swift in Sources */,
@@ -395,6 +395,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -489,6 +490,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
